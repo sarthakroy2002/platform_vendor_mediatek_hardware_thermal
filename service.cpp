@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "android.hardware.thermal@2.0-service-mock"
+#define LOG_TAG "android.hardware.thermal@2.0-service"
 
 #include <android-base/logging.h>
 #include <hidl/HidlTransportSupport.h>
 #include "Thermal.h"
+#include <android/hardware/thermal/1.0/IThermal.h>
+#include <hidl/LegacySupport.h>
 
 using ::android::OK;
 using ::android::status_t;
@@ -30,34 +32,8 @@ using ::android::hardware::joinRpcThreadpool;
 // Generated HIDL files:
 using ::android::hardware::thermal::V2_0::IThermal;
 using ::android::hardware::thermal::V2_0::implementation::Thermal;
+using android::hardware::defaultPassthroughServiceImplementation;
 
-static int shutdown() {
-    LOG(ERROR) << "Thermal Service is shutting down.";
-    return 1;
-}
-
-int main(int /* argc */, char** /* argv */) {
-    status_t status;
-    android::sp<IThermal> service = nullptr;
-
-    LOG(INFO) << "Thermal HAL Service Mock 2.0 starting...";
-
-    service = new Thermal();
-    if (service == nullptr) {
-        LOG(ERROR) << "Error creating an instance of ThermalHAL.  Exiting...";
-        return shutdown();
-    }
-
-    configureRpcThreadpool(1, true /* callerWillJoin */);
-
-    status = service->registerAsService();
-    if (status != OK) {
-        LOG(ERROR) << "Could not register service for ThermalHAL (" << status << ")";
-        return shutdown();
-    }
-
-    LOG(INFO) << "Thermal Service started successfully.";
-    joinRpcThreadpool();
-    // We should not get past the joinRpcThreadpool().
-    return shutdown();
+int main() {
+	return defaultPassthroughServiceImplementation<IThermal>();
 }

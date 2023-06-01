@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "android.hardware.thermal@2.0-service-mock"
+#define LOG_TAG "android.hardware.thermal@2.0-impl"
 
 #include <cmath>
 #include <set>
@@ -23,199 +23,202 @@
 #include <hidl/HidlTransportSupport.h>
 
 #include "Thermal.h"
+#include <errno.h>
+#include <math.h>
+
+#include <vector>
+
+
+#include <hardware/hardware.h>
+#include <hardware/thermal.h>
+#include "thermal_helper.h"
 
 namespace android {
 namespace hardware {
 namespace thermal {
 namespace V2_0 {
 namespace implementation {
-
 using ::android::sp;
 using ::android::hardware::interfacesEqual;
 using ::android::hardware::thermal::V1_0::ThermalStatus;
 using ::android::hardware::thermal::V1_0::ThermalStatusCode;
 
 std::set<sp<IThermalChangedCallback>> gCallbacks;
-
-static const Temperature_1_0 kTemp_1_0 = {
-        .type = static_cast<::android::hardware::thermal::V1_0::TemperatureType>(
-                TemperatureType::SKIN),
-        .name = "test temperature sensor",
-        .currentValue = 30.8,
-        .throttlingThreshold = 48.0,
-        .shutdownThreshold = 60.0,
-        .vrThrottlingThreshold = 49.0,
-};
-
-static const Temperature_2_0 kTemp_2_0 = {
-        .type = TemperatureType::SKIN,
-        .name = "test temperature sensor",
-        .value = 30.8,
-        .throttlingStatus = ThrottlingSeverity::NONE,
-};
-
-static const TemperatureThreshold kTempThreshold = {
-        .type = TemperatureType::SKIN,
-        .name = "test temperature sensor",
-        .hotThrottlingThresholds = {{NAN, NAN, NAN, 48.0, NAN, NAN, 60.0}},
-        .coldThrottlingThresholds = {{NAN, NAN, NAN, NAN, NAN, NAN, NAN}},
-        .vrThrottlingThreshold = 49.0,
-};
-
-static const CoolingDevice_1_0 kCooling_1_0 = {
-        .type = ::android::hardware::thermal::V1_0::CoolingType::FAN_RPM,
-        .name = "test cooling device",
-        .currentValue = 100.0,
-};
-
-static const CoolingDevice_2_0 kCooling_2_0 = {
-        .type = CoolingType::FAN,
-        .name = "test cooling device",
-        .value = 100,
-};
-
-static const CpuUsage kCpuUsage = {
-        .name = "cpu_name",
-        .active = 0,
-        .total = 0,
-        .isOnline = true,
-};
+Thermal::Thermal()
+	: thermal_helper_(
+		std::bind(&Thermal::sendThermalChangedCallback, this, std::placeholders::_1)) {
+		}
 
 // Methods from ::android::hardware::thermal::V1_0::IThermal follow.
 Return<void> Thermal::getTemperatures(getTemperatures_cb _hidl_cb) {
-    ThermalStatus status;
-    status.code = ThermalStatusCode::SUCCESS;
-    std::vector<Temperature_1_0> temperatures = {kTemp_1_0};
-    _hidl_cb(status, temperatures);
-    return Void();
+	ThermalStatus status;
+	status.code = ThermalStatusCode::SUCCESS;
+	hidl_vec<Temperature_1_0> temperatures;
+
+	if (!thermal_helper_.fill_temperatures_1_0(&temperatures)) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "get temp fail";
+	}
+	_hidl_cb(status, temperatures);
+	return Void();
 }
 
 Return<void> Thermal::getCpuUsages(getCpuUsages_cb _hidl_cb) {
-    ThermalStatus status;
-    status.code = ThermalStatusCode::SUCCESS;
-    std::vector<CpuUsage> cpu_usages = {kCpuUsage};
-    _hidl_cb(status, cpu_usages);
-    return Void();
+	ThermalStatus status;
+	status.code = ThermalStatusCode::SUCCESS;
+	hidl_vec<CpuUsage> cpu_usages;
+
+	if (!thermal_helper_.fillCpuUsages(&cpu_usages)) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "Failed to get CPU usages.";
+	}	
+	_hidl_cb(status, cpu_usages);
+	return Void();
 }
 
 Return<void> Thermal::getCoolingDevices(getCoolingDevices_cb _hidl_cb) {
-    ThermalStatus status;
-    status.code = ThermalStatusCode::SUCCESS;
-    std::vector<CoolingDevice_1_0> cooling_devices = {kCooling_1_0};
-    _hidl_cb(status, cooling_devices);
-    return Void();
+	ThermalStatus status;
+	status.code = ThermalStatusCode::SUCCESS;
+	hidl_vec<CoolingDevice_1_0> cooling_devices;
+	_hidl_cb(status, cooling_devices);
+	return Void();
 }
 
 // Methods from ::android::hardware::thermal::V2_0::IThermal follow.
 Return<void> Thermal::getCurrentTemperatures(bool filterType, TemperatureType type,
-                                             getCurrentTemperatures_cb _hidl_cb) {
-    ThermalStatus status;
-    status.code = ThermalStatusCode::SUCCESS;
-    std::vector<Temperature_2_0> temperatures;
-    if (filterType && type != kTemp_2_0.type) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "Failed to read data";
-    } else {
-        temperatures = {kTemp_2_0};
-    }
-    _hidl_cb(status, temperatures);
-    return Void();
+										getCurrentTemperatures_cb _hidl_cb) {
+	ThermalStatus status;
+	status.code = ThermalStatusCode::SUCCESS;
+	hidl_vec<Temperature_2_0> temperatures;
+	if (!thermal_helper_.fill_temperatures(filterType, &temperatures, type)) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "get temp fail";
+		}
+	_hidl_cb(status, temperatures);
+	return Void();
 }
 
+
+
 Return<void> Thermal::getTemperatureThresholds(bool filterType, TemperatureType type,
-                                               getTemperatureThresholds_cb _hidl_cb) {
-    ThermalStatus status;
-    status.code = ThermalStatusCode::SUCCESS;
-    std::vector<TemperatureThreshold> temperature_thresholds;
-    if (filterType && type != kTempThreshold.type) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "Failed to read data";
-    } else {
-        temperature_thresholds = {kTempThreshold};
-    }
-    _hidl_cb(status, temperature_thresholds);
-    return Void();
+											getTemperatureThresholds_cb _hidl_cb) {
+	ThermalStatus status;
+	status.code = ThermalStatusCode::SUCCESS;
+	hidl_vec<TemperatureThreshold> temperature_thresholds;
+
+	if (!thermal_helper_.fill_thresholds(filterType, &temperature_thresholds, type)) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "get temperature thresholds fail";
+	}
+	_hidl_cb(status, temperature_thresholds);
+	return Void();
 }
 
 Return<void> Thermal::getCurrentCoolingDevices(bool filterType, CoolingType type,
-                                               getCurrentCoolingDevices_cb _hidl_cb) {
-    ThermalStatus status;
-    status.code = ThermalStatusCode::SUCCESS;
-    std::vector<CoolingDevice_2_0> cooling_devices;
-    if (filterType && type != kCooling_2_0.type) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "Failed to read data";
-    } else {
-        cooling_devices = {kCooling_2_0};
-    }
-    _hidl_cb(status, cooling_devices);
-    return Void();
+											getCurrentCoolingDevices_cb _hidl_cb) {
+	ThermalStatus status;
+	status.code = ThermalStatusCode::SUCCESS;
+	std::vector<CoolingDevice_2_0> cooling_devices;
+
+	if (!thermal_helper_.fill_cooling_devices(filterType, &cooling_devices, type)) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "get cooling devices fail";
+		}
+	_hidl_cb(status, cooling_devices);
+	return Void();
 }
 
 Return<void> Thermal::registerThermalChangedCallback(const sp<IThermalChangedCallback>& callback,
                                                      bool filterType, TemperatureType type,
                                                      registerThermalChangedCallback_cb _hidl_cb) {
-    ThermalStatus status;
-    if (callback == nullptr) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "Invalid nullptr callback";
-        LOG(ERROR) << status.debugMessage;
-        _hidl_cb(status);
-        return Void();
-    } else {
-        status.code = ThermalStatusCode::SUCCESS;
-    }
-    std::lock_guard<std::mutex> _lock(thermal_callback_mutex_);
-    if (std::any_of(callbacks_.begin(), callbacks_.end(), [&](const CallbackSetting& c) {
-            return interfacesEqual(c.callback, callback);
-        })) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "Same callback interface registered already";
-        LOG(ERROR) << status.debugMessage;
-    } else {
-        callbacks_.emplace_back(callback, filterType, type);
-        LOG(INFO) << "A callback has been registered to ThermalHAL, isFilter: " << filterType
-                  << " Type: " << android::hardware::thermal::V2_0::toString(type);
-    }
-    _hidl_cb(status);
-    return Void();
+	ThermalStatus status;
+	if (callback == nullptr) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "Invalid nullptr callback";
+		LOG(ERROR) << status.debugMessage;
+		_hidl_cb(status);
+		return Void();
+	} else {
+		status.code = ThermalStatusCode::SUCCESS;
+	}
+	std::lock_guard<std::mutex> _lock(thermal_callback_mutex_);
+	if (std::any_of(callbacks_.begin(), callbacks_.end(), [&](const CallbackSetting& c) {
+			return interfacesEqual(c.callback, callback);
+		})) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "Same callback interface registered already";
+		LOG(ERROR) << status.debugMessage;
+	} else {
+		callbacks_.emplace_back(callback, filterType, type);
+		LOG(INFO) << "A callback has been registered to ThermalHAL, isFilter: " << filterType
+				<< " Type: " << android::hardware::thermal::V2_0::toString(type);
+	}
+	_hidl_cb(status);
+	return Void();
 }
 
 Return<void> Thermal::unregisterThermalChangedCallback(
-    const sp<IThermalChangedCallback>& callback, unregisterThermalChangedCallback_cb _hidl_cb) {
-    ThermalStatus status;
-    if (callback == nullptr) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "Invalid nullptr callback";
-        LOG(ERROR) << status.debugMessage;
-        _hidl_cb(status);
-        return Void();
-    } else {
-        status.code = ThermalStatusCode::SUCCESS;
-    }
-    bool removed = false;
-    std::lock_guard<std::mutex> _lock(thermal_callback_mutex_);
-    callbacks_.erase(
-        std::remove_if(callbacks_.begin(), callbacks_.end(),
-                       [&](const CallbackSetting& c) {
-                           if (interfacesEqual(c.callback, callback)) {
-                               LOG(INFO)
-                                   << "A callback has been unregistered from ThermalHAL, isFilter: "
-                                   << c.is_filter_type << " Type: "
-                                   << android::hardware::thermal::V2_0::toString(c.type);
-                               removed = true;
-                               return true;
-                           }
-                           return false;
-                       }),
-        callbacks_.end());
-    if (!removed) {
-        status.code = ThermalStatusCode::FAILURE;
-        status.debugMessage = "The callback was not registered before";
-        LOG(ERROR) << status.debugMessage;
-    }
-    _hidl_cb(status);
-    return Void();
+	const sp<IThermalChangedCallback>& callback, unregisterThermalChangedCallback_cb _hidl_cb) {
+	ThermalStatus status;
+	if (callback == nullptr) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "Invalid nullptr callback";
+		LOG(ERROR) << status.debugMessage;
+		_hidl_cb(status);
+		return Void();
+	} else {
+		status.code = ThermalStatusCode::SUCCESS;
+	}
+	bool removed = false;
+	std::lock_guard<std::mutex> _lock(thermal_callback_mutex_);
+	callbacks_.erase(
+		std::remove_if(callbacks_.begin(), callbacks_.end(),
+				[&](const CallbackSetting& c) {
+					if (interfacesEqual(c.callback, callback)) {
+						LOG(INFO)
+							<< "A callback has been unregistered from ThermalHAL, isFilter: "
+							<< c.is_filter_type << " Type: "
+							<< android::hardware::thermal::V2_0::toString(c.type);
+								removed = true;
+								return true;
+						}
+							return false;
+						}),
+		callbacks_.end());
+	if (!removed) {
+		status.code = ThermalStatusCode::FAILURE;
+		status.debugMessage = "The callback was not registered before";
+		LOG(ERROR) << status.debugMessage;
+	}
+	_hidl_cb(status);
+	return Void();
+}
+
+void Thermal::sendThermalChangedCallback(const std::vector<Temperature_2_0> &temps) {
+	std::lock_guard<std::mutex> _lock(thermal_callback_mutex_);
+	for (auto &t : temps) {
+		LOG(INFO) << "Sending notification: "
+				<< " Type: " << android::hardware::thermal::V2_0::toString(t.type)
+				<< " Name: " << t.name << " CurrentValue: " << t.value << " ThrottlingStatus: "
+				<< android::hardware::thermal::V2_0::toString(t.throttlingStatus);
+		callbacks_.erase(
+			std::remove_if(callbacks_.begin(), callbacks_.end(),
+						[&](const CallbackSetting &c) {
+							if (!c.is_filter_type || t.type == c.type) {
+								Return<void> ret = c.callback->notifyThrottling(t);
+								LOG(INFO) << "sendThermalChangedCallback";
+								return !ret.isOk();
+							}
+							LOG(ERROR)
+								<< "a Thermal callback is dead, removed from callback list.";
+								return false;
+							}),
+			callbacks_.end());
+	}
+}
+
+IThermal* HIDL_FETCH_IThermal(const char* /* name */) {
+	return new Thermal();
 }
 
 }  // namespace implementation
